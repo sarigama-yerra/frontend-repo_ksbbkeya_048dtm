@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Car, UserPlus, User, Search, PlusCircle, Wrench, ClipboardList, CheckSquare, Users } from "lucide-react";
+import TechnicianAssignModal from "./TechnicianAssignModal";
 
 const t = (lang) => ({
   title: lang==='ar'? 'استقبال الخدمة وإنشاء أمر عمل' : 'Service Intake & Job Card',
@@ -26,6 +27,9 @@ const t = (lang) => ({
   discount: lang==='ar'? 'خصم' : 'Discount',
   technician: lang==='ar'? 'الفنيون' : 'Technicians',
   success: lang==='ar'? 'تم إنشاء أمر العمل' : 'Job card created',
+  selected: lang==='ar'? 'المحدد' : 'Selected',
+  none: lang==='ar'? 'لا يوجد' : 'None',
+  primaryShort: lang==='ar'? 'رئيسي' : 'Primary',
 });
 
 export default function ServiceIntake({ lang }){
@@ -45,8 +49,11 @@ export default function ServiceIntake({ lang }){
   const [outside, setOutside] = useState([]);
   const [checkNotes, setCheckNotes] = useState("");
   const [complaint, setComplaint] = useState("");
-  const [techs, setTechs] = useState([]);
+
   const [availableTechs, setAvailableTechs] = useState([]);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [selectedTechs, setSelectedTechs] = useState([]);
+  const [primaryTech, setPrimaryTech] = useState(null);
 
   useEffect(()=>{
     fetch(`${base}/api/technicians?only_available=true`).then(r=>r.json()).then(setAvailableTechs).catch(()=>{});
@@ -92,20 +99,21 @@ export default function ServiceIntake({ lang }){
     setList(copy);
   };
 
-  const toggleTech = (id) => {
-    setTechs((prev)=> prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
-  };
-
   const createJob = async () => {
     if(!vehicle?.id || !customer?.id){
       alert(lang==='ar'? 'الرجاء اختيار مركبة وعميل' : 'Please select vehicle and customer');
       return;
     }
+    if(selectedTechs.length===0){
+      // allow but warn
+      if(!confirm(lang==='ar'? 'لم يتم اختيار فنيين. المتابعة؟' : 'No technicians selected. Continue?')) return;
+    }
     const payload = {
       vehicle_id: vehicle.id,
       customer_id: customer.id,
       advisor_id: null,
-      technician_ids: techs,
+      technician_ids: selectedTechs,
+      primary_technician_id: primaryTech,
       complaint_notes: complaint,
       check_notes: checkNotes,
       labor,
@@ -119,8 +127,17 @@ export default function ServiceIntake({ lang }){
     if(r.ok){
       alert(dict.success);
       // reset minimal
-      setLabor([]); setParts([]); setMaterials([]); setOutside([]); setComplaint(""); setCheckNotes(""); setTechs([]);
+      setLabor([]); setParts([]); setMaterials([]); setOutside([]); setComplaint(""); setCheckNotes(""); setSelectedTechs([]); setPrimaryTech(null);
+    } else {
+      const err = await r.json().catch(()=>({detail:'error'}));
+      alert(err.detail || 'Error');
     }
+  };
+
+  const selectedSummary = () => {
+    if(selectedTechs.length===0) return dict.none;
+    const names = selectedTechs.map(id => availableTechs.find(t=>t.id===id)?.name || id);
+    return names.join(', ') + (primaryTech ? ` · ${dict.primaryShort}: ${availableTechs.find(t=>t.id===primaryTech)?.name || ''}` : '');
   };
 
   return (
@@ -157,10 +174,9 @@ export default function ServiceIntake({ lang }){
 
         <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 space-y-3">
           <div className="text-sm text-slate-400 flex items-center gap-2"><Users className="w-4 h-4"/> {dict.technician}</div>
-          <div className="flex flex-wrap gap-2">
-            {availableTechs.map(t=> (
-              <button key={t.id} onClick={()=>toggleTech(t.id)} className={`px-3 py-1.5 rounded-lg border ${techs.includes(t.id)?'bg-blue-600 border-blue-500':'bg-slate-800 border-slate-700'}`}>{t.name}</button>
-            ))}
+          <div className="flex flex-wrap gap-2 items-center">
+            <button onClick={()=>setAssignOpen(true)} className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 flex items-center gap-2"><Users className="w-4 h-4"/> {dict.assignTech}</button>
+            <div className="text-xs text-slate-400">{dict.selected}: <span className="text-slate-200">{selectedSummary()}</span></div>
           </div>
         </div>
       </div>
@@ -219,6 +235,16 @@ export default function ServiceIntake({ lang }){
       <div className="flex justify-end">
         <button onClick={createJob} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 flex items-center gap-2"><CheckSquare className="w-4 h-4"/> {dict.createJob}</button>
       </div>
+
+      <TechnicianAssignModal
+        lang={lang}
+        open={assignOpen}
+        onClose={()=>setAssignOpen(false)}
+        technicians={availableTechs}
+        initialSelected={selectedTechs}
+        initialPrimary={primaryTech}
+        onSave={(ids, primary)=>{ setSelectedTechs(ids); setPrimaryTech(primary); }}
+      />
     </div>
   );
 }
